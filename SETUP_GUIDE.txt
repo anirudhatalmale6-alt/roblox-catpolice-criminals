@@ -1,0 +1,136 @@
+========================================
+  CATPOLICE vs CRIMINALS - SETUP GUIDE
+========================================
+
+This guide explains how to set up all the scripts in Roblox Studio.
+
+
+STEP 1: WORKSPACE SETUP
+========================
+
+Your workspace needs this structure:
+
+  Workspace
+  ├── Lobby (Folder or Model)
+  │   └── LobbySpawn (Part) -- where players spawn initially
+  ├── GameMap (Folder or Model)
+  │   ├── GameSpawn (Part) -- where players teleport when round starts
+  │   └── ThrowPart (Part) -- the red part near the jail (you already have this)
+
+IMPORTANT:
+- "LobbySpawn" must be a Part (or SpawnLocation) inside the Lobby folder
+- "GameSpawn" must be a Part inside the GameMap folder
+- "ThrowPart" must be a Part inside the GameMap folder (your existing red Part)
+- Make sure the names match EXACTLY (case-sensitive)
+
+
+STEP 2: TEAMS SETUP
+====================
+
+1. In Roblox Studio, go to the Explorer panel
+2. Click on "Teams" service (if not visible: View > Explorer, then right-click > Insert Object > Teams)
+3. Inside Teams, create two Team objects:
+   - Name: "CatPolice" -- set TeamColor to Bright blue (or any color you like)
+   - Name: "Criminals" -- set TeamColor to Bright red (or any color you like)
+4. Set AutoAssignable = false for BOTH teams
+
+
+STEP 3: SCRIPTS PLACEMENT
+==========================
+
+Place the scripts in these EXACT locations:
+
+1. GameManager.lua → ServerScriptService
+   - Right-click ServerScriptService > Insert Object > Script
+   - Rename it "GameManager"
+   - Paste the contents of GameManager.lua
+
+2. CarrySystem.lua → ServerScriptService
+   - Right-click ServerScriptService > Insert Object > Script
+   - Rename it "CarrySystem"
+   - Paste the contents of CarrySystem.lua
+   - ** IMPORTANT: Replace the animation ID on line 21 with YOUR animation ID **
+     Change: local CARRY_ANIMATION_ID = "rbxassetid://0"
+     To:     local CARRY_ANIMATION_ID = "rbxassetid://YOUR_NUMBER_HERE"
+
+3. CarryClient.lua → StarterPlayer > StarterPlayerScripts
+   - Expand StarterPlayer in Explorer
+   - Right-click StarterPlayerScripts > Insert Object > LocalScript
+   - Rename it "CarryClient"
+   - Paste the contents of CarryClient.lua
+
+4. RoundUI.lua → StarterPlayer > StarterPlayerScripts
+   - Right-click StarterPlayerScripts > Insert Object > LocalScript
+   - Rename it "RoundUI"
+   - Paste the contents of RoundUI.lua
+
+
+STEP 4: ANIMATION ID
+=====================
+
+In CarrySystem.lua, find this line near the top:
+
+  local CARRY_ANIMATION_ID = "rbxassetid://0"
+
+Replace the 0 with your CatPolice carry animation ID. For example:
+
+  local CARRY_ANIMATION_ID = "rbxassetid://12345678"
+
+Make sure the animation is published and owned by you or uploaded to your game.
+
+
+STEP 5: CONFIGURATION (OPTIONAL)
+=================================
+
+In GameManager.lua, you can adjust these settings:
+
+  MIN_PLAYERS = 5         -- minimum players to start a round (change to 2 for testing!)
+  LOBBY_COUNTDOWN = 10    -- seconds countdown before round starts
+  ROUND_TIME = 180        -- round duration in seconds (180 = 3 minutes)
+  INTERMISSION_TIME = 15  -- time between rounds
+
+In CarrySystem.lua:
+
+  THROW_FORCE = 80        -- how hard criminals get thrown forward
+  THROW_UPWARD = 40       -- upward force when thrown
+  CARRY_SPEED_MULTIPLIER = 0.85  -- police walk speed while carrying (0.85 = 85% normal speed)
+
+
+STEP 6: TESTING
+===============
+
+For testing in Studio:
+1. Change MIN_PLAYERS to 2 in GameManager.lua (so you don't need 5 players)
+2. Use "Start Server" with 2+ players (Test tab > Local Server > 2 Players)
+3. Both players will spawn in Lobby, then countdown starts
+4. After teleport, one player will be CatPolice, the other Criminal
+5. Police walks into Criminal = auto-catch + carry
+6. Police walks to ThrowPart = criminal gets thrown
+
+Remember to change MIN_PLAYERS back to 5 (or whatever you want) before publishing!
+
+
+HOW IT WORKS
+============
+
+1. Players join → spawn in Lobby
+2. When 5+ players are in game → 10 second countdown
+3. Players teleported to GameMap, randomly assigned CatPolice or Criminals
+4. CatPolice touch Criminals → criminal is caught and placed on police's head
+5. Criminal lies flat on police's head, can't move at all
+6. Police walks normally (slightly slower) with carry animation playing
+7. Police touches ThrowPart → criminal is launched/thrown forward into jail area
+8. When all criminals are jailed → CatPolice wins
+9. If time runs out → Criminals win
+10. Intermission → back to Lobby → repeat
+
+
+TROUBLESHOOTING
+===============
+
+- "Script not working": Make sure script names and locations match Step 3 exactly
+- "Teams not assigning": Make sure Team objects exist in Teams service with exact names "CatPolice" and "Criminals"
+- "Players not teleporting": Make sure "LobbySpawn" and "GameSpawn" Parts exist with correct names
+- "Carry animation not playing": Check that the animation ID is correct and published to your account
+- "Criminal not on head": This is handled by code, no animation needed for the criminal
+- "ThrowPart not working": Make sure it's named exactly "ThrowPart" and is inside GameMap
