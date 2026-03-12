@@ -24,7 +24,7 @@ local Debris = game:GetService("Debris")
 -- ============================================================
 -- CONFIG - SET YOUR ANIMATION ID HERE
 -- ============================================================
-local CARRY_ANIMATION_ID = "rbxassetid://0" -- << REPLACE 0 WITH YOUR ANIMATION ID
+local CARRY_ANIMATION_ID = "rbxassetid://102521847646454"
 -- ============================================================
 
 local THROW_FORCE = 80 -- how hard criminals get thrown
