@@ -7,18 +7,21 @@
 	- Criminal positioned lying on police officer's head (CFrame weld)
 	- Police plays carry animation
 	- Criminal can't move while carried
-	- ThrowPart interaction = criminal gets launched into jail
+	- ThrowPart interaction = criminal gets launched THROUGH JailBarrier into jail
+	- JailBarrier becomes solid wall after criminal lands inside
 
 	REQUIRES: GameManager script to be running (for team assignments and events)
 
 	SETUP:
 	- Set CARRY_ANIMATION_ID below to your CatPolice carry animation asset ID
 	- "ThrowPart" Part must exist inside GameMap
+	- "JailBarrier" Part/Union must exist inside GameMap
 ]]
 
 local Players = game:GetService("Players")
 local Teams = game:GetService("Teams")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PhysicsService = game:GetService("PhysicsService")
 local Debris = game:GetService("Debris")
 
 -- ============================================================
@@ -27,15 +30,58 @@ local Debris = game:GetService("Debris")
 local CARRY_ANIMATION_ID = "rbxassetid://102521847646454"
 -- ============================================================
 
-local THROW_FORCE = 80 -- how hard criminals get thrown
+local THROW_FORCE = 80 -- how hard criminals get thrown forward
 local THROW_UPWARD = 40 -- upward force when thrown
 local THROW_DURATION = 0.5 -- how long the throw force lasts
 local CATCH_COOLDOWN = 2 -- seconds between catches (prevents spam)
 local CARRY_SPEED_MULTIPLIER = 0.85 -- police walk a bit slower while carrying
+local JAIL_LAND_DELAY = 1.2 -- seconds to wait before re-enabling barrier collision
+
+-- ============================================================
+-- COLLISION GROUPS SETUP
+-- ============================================================
+-- "Default" = normal players and objects
+-- "ThrownCriminal" = criminals mid-throw (passes through JailBarrier)
+-- "JailBarrier" = the jail barrier part
+
+local function setupCollisionGroups()
+	-- Register collision groups
+	PhysicsService:RegisterCollisionGroup("ThrownCriminal")
+	PhysicsService:RegisterCollisionGroup("JailBarrier")
+
+	-- ThrownCriminal does NOT collide with JailBarrier (passes through)
+	PhysicsService:CollisionGroupSetCollidable("ThrownCriminal", "JailBarrier", false)
+
+	-- ThrownCriminal still collides with Default (ground, walls, etc.)
+	PhysicsService:CollisionGroupSetCollidable("ThrownCriminal", "Default", true)
+
+	-- JailBarrier collides with Default (normal players can't pass through)
+	PhysicsService:CollisionGroupSetCollidable("JailBarrier", "Default", true)
+end
+
+local success, err = pcall(setupCollisionGroups)
+if not success then
+	warn("[CarrySystem] Collision group setup error: " .. tostring(err))
+end
 
 -- References
 local GameMap = workspace:WaitForChild("GameMap")
 local ThrowPart = GameMap:WaitForChild("ThrowPart")
+local JailBarrier = GameMap:WaitForChild("JailBarrier")
+
+-- Assign JailBarrier to its collision group
+local function setCollisionGroupRecursive(object, groupName)
+	if object:IsA("BasePart") then
+		object.CollisionGroup = groupName
+	end
+	for _, child in ipairs(object:GetDescendants()) do
+		if child:IsA("BasePart") then
+			child.CollisionGroup = groupName
+		end
+	end
+end
+
+setCollisionGroupRecursive(JailBarrier, "JailBarrier")
 
 -- Wait for events folder from GameManager
 local EventsFolder = ReplicatedStorage:WaitForChild("GameEvents")
@@ -54,6 +100,15 @@ local catchCooldowns = {} -- [policePlayer] = tick()
 local touchConnections = {} -- [player] = {connections}
 local throwPartConnection = nil
 
+-- Helper: Set collision group on all parts of a character
+local function setCharacterCollisionGroup(character, groupName)
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CollisionGroup = groupName
+		end
+	end
+end
+
 -- Helper: Check if player is on CatPolice team
 local function isPolice(player)
 	return player.Team and player.Team.Name == "CatPolice"
@@ -71,11 +126,8 @@ local function positionCriminalOnHead(policeCharacter, criminalCharacter)
 
 	if not policeHead or not criminalRoot then return nil end
 
-	-- Anchor the criminal's root part temporarily to prevent physics issues
-	-- We'll use a WeldConstraint instead
-
 	-- Position criminal lying flat on top of police head
-	-- Rotate 90 degrees on the X axis so they're lying down
+	-- Rotate 90 degrees so they're lying down
 	-- Offset upward so they sit on top of the head
 	local offsetCFrame = CFrame.new(0, 1.5, 0) * CFrame.Angles(0, 0, math.rad(90))
 
@@ -284,23 +336,30 @@ local function throwCriminal(policePlayer)
 		return
 	end
 
-	-- Stop the carry (but don't reset controls yet — we want the criminal to fly first)
+	print("[CarrySystem] " .. policePlayer.Name .. " threw " .. criminalPlayer.Name .. " into jail!")
+
+	-- 1. BEFORE releasing: set criminal to ThrownCriminal collision group
+	--    This lets them pass through the JailBarrier
+	setCharacterCollisionGroup(criminalChar, "ThrownCriminal")
+
+	-- 2. Stop the carry (but don't reset controls yet — criminal needs to fly first)
 	stopCarry(policePlayer, true) -- dontResetControls = true
 
-	-- Calculate throw direction: forward from police + upward
+	-- 3. Calculate throw direction: forward from police + upward arc
 	local lookVector = policeRoot.CFrame.LookVector
 	local throwDirection = (lookVector * THROW_FORCE) + Vector3.new(0, THROW_UPWARD, 0)
 
-	-- Re-enable physics on criminal temporarily for the throw
+	-- 4. Re-enable physics on criminal for the throw
 	local criminalHumanoid = criminalChar:FindFirstChild("Humanoid")
 	if criminalHumanoid then
 		criminalHumanoid.PlatformStand = false
 	end
 
-	-- Apply throw force using LinearVelocity
+	-- 5. Apply smooth throw force using LinearVelocity
 	local attachment = criminalRoot:FindFirstChildOfClass("Attachment")
 	if not attachment then
 		attachment = Instance.new("Attachment")
+		attachment.Name = "ThrowAttachment"
 		attachment.Parent = criminalRoot
 	end
 
@@ -311,19 +370,21 @@ local function throwCriminal(policePlayer)
 	linearVelocity.Attachment0 = attachment
 	linearVelocity.Parent = criminalRoot
 
+	-- Clean up the force after duration
 	Debris:AddItem(linearVelocity, THROW_DURATION)
 
 	-- Notify
 	CarryStatusEvent:FireAllClients("Thrown", policePlayer.Name, criminalPlayer.Name)
 
-	print("[CarrySystem] " .. policePlayer.Name .. " threw " .. criminalPlayer.Name .. " into jail!")
-
-	-- After throw, re-enable criminal controls after a delay
-	task.delay(1.5, function()
+	-- 6. After criminal lands: switch back to Default collision group
+	--    so JailBarrier becomes a solid wall they can't escape
+	task.delay(JAIL_LAND_DELAY, function()
 		if criminalChar and criminalChar.Parent then
+			-- Put criminal back in Default collision group = JailBarrier is now solid
+			setCharacterCollisionGroup(criminalChar, "Default")
+
+			-- Re-enable movement (they're stuck in jail but can walk around inside)
 			setCriminalLyingPose(criminalChar, false)
-			-- But keep them in jail — they stay there
-			-- You could teleport them to a jail spawn or just leave them
 		end
 		if criminalPlayer and criminalPlayer.Parent then
 			DisableControlsEvent:FireClient(criminalPlayer, false)
@@ -404,6 +465,11 @@ local function cleanupPlayer(player)
 		end
 		touchConnections[player] = nil
 	end
+
+	-- Reset collision group
+	if player.Character then
+		setCharacterCollisionGroup(player.Character, "Default")
+	end
 end
 
 -- Player setup
@@ -413,6 +479,9 @@ Players.PlayerAdded:Connect(function(player)
 		character:WaitForChild("HumanoidRootPart")
 		character:WaitForChild("Humanoid")
 		task.wait(0.5)
+
+		-- Ensure character is in Default collision group
+		setCharacterCollisionGroup(character, "Default")
 
 		-- Set up touch detection if they're police
 		if isPolice(player) then
@@ -471,4 +540,4 @@ end)
 -- Initialize ThrowPart
 setupThrowPart()
 
-print("[CarrySystem] Loaded successfully!")
+print("[CarrySystem] Loaded successfully! (with JailBarrier collision groups)")
